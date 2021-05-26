@@ -31,8 +31,11 @@ from tobrot.helper_funcs.create_compressed_archive import (
 )
 from tobrot.helper_funcs.extract_link_from_message import extract_link
 from tobrot.helper_funcs.upload_to_tg import upload_to_gdrive, upload_to_tg
+from tobrot.helper_funcs.direct_link_generator import direct_link_generator
+from tobrot.helper_funcs.exceptions import DirectDownloadLinkException
 
 sys.setrecursionlimit(10 ** 4)
+
 
 
 async def aria_start():
@@ -125,7 +128,20 @@ def add_url(aria_instance, text_url, c_file_name):
     #     options = {
     #         "dir": c_file_name
     #     }
-    uris = [text_url]
+    if "zippyshare.com" in text_url \
+        or "osdn.net" in text_url \
+        or "mediafire.com" in text_url \
+        or "cloud.mail.ru" in text_url \
+        or "github.com" in text_url \
+        or "yadi.sk" in text_url  \
+        or "racaty.net" in text_url:
+            try:
+                urisitring = direct_link_generator(text_url)
+                uris = [urisitring]
+            except DirectDownloadLinkException as e:
+                LOGGER.info(f'{text_url}: {e}')
+    else:
+        uris = [text_url]
     # Add URL Into Queue
     try:
         download = aria_instance.add_uris(uris, options=options)
@@ -148,6 +164,7 @@ async def call_apropriate_function(
     is_cloud,
     is_unzip,
     user_message,
+    client,
 ):
     regexp = re.compile(r'^https?:\/\/.*(\.torrent|\/torrent|\/jav.php|nanobytes\.org).*')
     if incoming_link.lower().startswith("magnet:"):
@@ -162,6 +179,12 @@ async def call_apropriate_function(
             sagtus, err_message = add_torrent(aria_instance, f"/app/{file}.torrent")
         else:
             sagtus, err_message = add_url(aria_instance, incoming_link, c_file_name)
+    if incoming_link.lower().startswith("magnet:"):
+        sagtus, err_message = add_magnet(aria_instance, incoming_link, c_file_name)
+    elif incoming_link.lower().endswith(".torrent"):
+        sagtus, err_message = add_torrent(aria_instance, incoming_link)
+    else:
+        sagtus, err_message = add_url(aria_instance, incoming_link, c_file_name)
     if not sagtus:
         return sagtus, err_message
     LOGGER.info(err_message)
@@ -230,8 +253,10 @@ async def call_apropriate_function(
             )
         else:
             final_response = await upload_to_tg(
-                sent_message_to_update_tg_p, to_upload_file, user_id, response
+                sent_message_to_update_tg_p, to_upload_file, user_id, response, client
             )
+            if not final_response:
+                return True, None
             try:
                 message_to_send = ""
                 for key_f_res_se in final_response:
